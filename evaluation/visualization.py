@@ -657,4 +657,4 @@ if __name__ == "__main__":
         frame_idx=1, output_filename='detections_by_source'
     )
     
-    print("Example visualizations saved to ./example_visualizations/")
+    print("Example visualizations saved to directory:", dir_path)
