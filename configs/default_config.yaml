@@ -1,0 +1,30 @@
+# Default configuration for V2X-Seq
+# This file contains default parameters that can be overridden by specific configurations
+
+data:
+  dataset_path: "/path/to/v2x_seq_dataset"
+  batch_size: 4
+  num_workers: 4
+  
+model:
+  detection:
+    type: "pointpillars"
+    voxel_size: [0.16, 0.16, 4]
+    point_cloud_range: [0, -39.68, -3, 100, 39.68, 1]
+    
+  tracking:
+    type: "ab3dmot"
+    max_age: 3
+    min_hits: 3
+    
+fusion:
+  type: "ff_tracking"
+  compression_rate: 0.8
+  
+training:
+  num_epochs: 40
+  learning_rate: 0.001
+  weight_decay: 0.01
+  
+evaluation:
+  metrics: ["MOTA", "MOTP", "IDS", "BPS"]
