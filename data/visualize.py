@@ -1520,7 +1520,7 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="V2X-Seq visualization utilities")
-    parser.add_argument("--sample_path", type=str, help="Path to sample data")
+    parser.add_argument("--sample_path", type=str, help="Path to sample data", default= r'M:\Documents\Mwasalat\dataset\Full Dataset (train & val)-20250313T155844Z\Full Dataset (train & val)\V2X-Seq-SPD\V2X-Seq-SPD\infrastructure-side')
     parser.add_argument("--output_dir", type=str, default="./visualizations",
                        help="Directory to save visualizations")
     parser.add_argument("--mode", type=str, default="bev",
@@ -1633,6 +1633,8 @@ if __name__ == "__main__":
                 elif args.mode == "tracking":
                     # For tracking, we need a sequence of frames
                     # Just create a dummy sequence with the same data repeated
+
+
                     dummy_sequence = [
                         {'points': points, 'labels': labels, 'timestamp': i * 0.1}
                         for i in range(10)

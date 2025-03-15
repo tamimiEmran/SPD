@@ -17,9 +17,15 @@ from typing import Dict, List, Tuple, Optional, Union, Any
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from .dataset import V2XDataset, V2XBaseDataset
-from .preprocessing.transform import transform_points_to_veh_coordinate
-from .preprocessing.augmentation import augment_point_cloud
+
+# add M:\Documents\Mwasalat\dataset\Full Dataset (train & val)-20250313T155844Z\Full Dataset (train & val)\V2X-Seq-SPD\V2X-Seq-SPD\v2x_tracking\data
+# to the sys.path
+import sys
+sys.path.append("M:/Documents/Mwasalat/dataset/Full Dataset (train & val)-20250313T155844Z/Full Dataset (train & val)/V2X-Seq-SPD/V2X-Seq-SPD/v2x_tracking/data")
+
+from dataset import V2XDataset, V2XBaseDataset
+from preprocessing.transform import transform_points_to_veh_coordinate
+from preprocessing.augmentation import augment_point_cloud
 
 logger = logging.getLogger(__name__)
 
@@ -482,14 +488,41 @@ if __name__ == "__main__":
     # Example usage
     import argparse
     
+    dir_path = r"M:\Documents\Mwasalat\dataset\Full Dataset (train & val)-20250313T155844Z\Full Dataset (train & val)\V2X-Seq-SPD\V2X-Seq-SPD"
+
+    infra_path = os.path.join(dir_path, "infrastructure-side")
+    vehicle_path = os.path.join(dir_path, "vehicle-side")
+    cooperative_path = os.path.join(dir_path, "cooperative")
+
+    
+
+
+
     parser = argparse.ArgumentParser(description="V2X-Seq data loader utilities")
-    parser.add_argument("--dataset_path", type=str, required=True, help="Path to dataset")
+    parser.add_argument("--dataset_path", type=str, default= "no", choices= ["infra", "vehicle", "coop", "no"] , help="Path to dataset")
+
+
     parser.add_argument("--config", type=str, help="Path to config file")
     parser.add_argument("--split", type=str, default="train", choices=["train", "val", "test"], 
                        help="Dataset split")
     parser.add_argument("--stats", action="store_true", help="Print dataset statistics")
     
     args = parser.parse_args()
+
+    if args.dataset_path == "infra":
+        args.dataset_path = infra_path
+    elif args.dataset_path == "vehicle":
+        args.dataset_path = vehicle_path
+    elif args.dataset_path == "coop":
+        args.dataset_path = cooperative_path
+
+    elif args.dataset_path == "no":
+        args.dataset_path = dir_path
+    
+    else:
+        raise ValueError(f"Unsupported dataset path: {args.dataset_path}")
+
+
     
     # Configure logging
     logging.basicConfig(level=logging.INFO, 

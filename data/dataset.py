@@ -20,19 +20,22 @@ from typing import Dict, List, Tuple, Optional, Union, Any
 import copy
 import random
 
-from .preprocessing.transform import (
+import sys
+sys.path.append("M:/Documents/Mwasalat/dataset/Full Dataset (train & val)-20250313T155844Z/Full Dataset (train & val)/V2X-Seq-SPD/V2X-Seq-SPD/v2x_tracking/data")
+
+
+from preprocessing.transform import (
     transform_points_to_veh_coordinate,
     transform_inf_points_to_veh,
     transform_inf_boxes_to_veh,
     transform_boxes_to_veh_coordinate
 )
-from .preprocessing.augmentation import augment_point_cloud
-from .calibration.coordinate_transform import (
+from preprocessing.augmentation import augment_point_cloud
+from calibration.coordinate_transform import (
     get_transformation_matrix,
     transform_points,
     inverse_transform_matrix
 )
-from .calibration.latency_compensation import apply_latency
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +110,11 @@ class V2XBaseDataset(Dataset):
                 coop_data = json.load(f)
             
             # Filter frames belonging to this sequence
-            for frame_id, frame_info in coop_data.items():
+            #clear the print statements in the terminal
+
+            for frame_info in coop_data:
                 if frame_info["vehicle_sequence"] == seq_id:
+                    frame_id = frame_info["vehicle_frame"]
                     self.sequence_frames[seq_id].append(frame_id)
                     self.frame_to_sequence_mapping[frame_id] = seq_id
             
@@ -225,7 +231,18 @@ class V2XBaseDataset(Dataset):
         with open(coop_info_path, 'r') as f:
             coop_info = json.load(f)
         
-        frame_info = coop_info.get(frame_id, {})
+        # Find the frame info in the list
+        frame_info = None
+        for info in coop_info:
+            if info.get("vehicle_frame") == frame_id:
+                frame_info = info
+                break
+                
+        if not frame_info:
+            logger.warning(f"Missing frame info for {frame_id}")
+            return frame_data
+        
+
         vehicle_frame = frame_info.get("vehicle_frame")
         infrastructure_frame = frame_info.get("infrastructure_frame")
         
@@ -236,6 +253,8 @@ class V2XBaseDataset(Dataset):
         
         # Load vehicle data
         vehicle_data = self._load_vehicle_data(vehicle_frame)
+
+
         frame_data["vehicle_points"] = vehicle_data["points"]
         frame_data["vehicle_labels"] = vehicle_data["labels"]
         frame_data["metadata"]["timestamp"] = vehicle_data["timestamp"]
@@ -264,55 +283,79 @@ class V2XBaseDataset(Dataset):
         )
         
         return frame_data
-    
-    def _load_vehicle_data(self, frame_id: str) -> Dict:
+
+
+    def _load_vehicle_data(self, frame_id: str) -> Dict[str, Any]:
         """
-        Load vehicle-side data for a frame.
+        Load vehicle data for a specific frame.
         
         Args:
-            frame_id: Vehicle frame ID
-            
-        Returns:
-            Dictionary with vehicle point cloud, labels, and metadata
-        """
-        data = {}
+            frame_id: ID of the vehicle frame to load
         
-        # Load vehicle data info
+        Returns:
+            Dictionary containing vehicle data
+        """
+        vehicle_data = {}
+        
+        # Load vehicle info
         veh_info_path = self.dataset_path / "vehicle-side" / "data_info.json"
         with open(veh_info_path, 'r') as f:
             veh_info = json.load(f)
         
-        frame_info = veh_info.get(frame_id, {})
+        # Find the frame info in the list
+        frame_info = None
+        for info in veh_info:
+            if info.get("frame_id") == frame_id:
+                frame_info = info
+                break
+        
         if not frame_info:
-            logger.warning(f"Missing vehicle info for {frame_id}")
-            return data
+            logger.warning(f"Missing vehicle frame info for {frame_id}")
+            return vehicle_data
         
-        # Load point cloud
-        pc_path = self.dataset_path / frame_info["pointcloud_path"]
-        if pc_path.exists():
-            points = self._load_point_cloud(pc_path)
-            # Apply augmentation if specified
-            if self.augment:
-                points = augment_point_cloud(points)
-            data["points"] = points
+        # Get the point cloud path and check if it exists
+        pointcloud_path = self.dataset_path / "vehicle-side" / frame_info.get("pointcloud_path", "")
         
-        # Load labels
-        label_path = self.dataset_path / frame_info["label_lidar_std_path"]
+        # Get label path and check if it exists
+        label_path = self.dataset_path / "vehicle-side" / frame_info.get("label_lidar_std_path", "")
+        
+        # Get timestamp
+        timestamp = frame_info.get("pointcloud_timestamp", "")
+        vehicle_data["timestamp"] = timestamp
+        
+        # Try to load point cloud with detailed error reporting
+        if pointcloud_path.exists():
+            try:
+                # Check how _load_point_cloud is implemented
+                points = self._load_point_cloud(pointcloud_path)
+                vehicle_data["points"] = points
+            except Exception as e:
+                import traceback
+                print(f"Error loading point cloud: {e}")
+                print(traceback.format_exc())
+                # Initialize with empty array as fallback
+                vehicle_data["points"] = np.zeros((0, 4), dtype=np.float32)  # Empty point cloud
+        else:
+            print(f"Point cloud file not found: {pointcloud_path}")
+            vehicle_data["points"] = np.zeros((0, 4), dtype=np.float32)  # Empty point cloud
+        
+        # Try to load labels with detailed error reporting
         if label_path.exists():
-            with open(label_path, 'r') as f:
-                data["labels"] = json.load(f)
+            try:
+                with open(label_path, 'r') as f:
+                    labels = json.load(f)
+                vehicle_data["labels"] = labels
+            except Exception as e:
+                import traceback
+                print(f"Error loading labels: {e}")
+                print(traceback.format_exc())
+                vehicle_data["labels"] = []  # Empty labels as fallback
+        else:
+            print(f"Label file not found: {label_path}")
+            vehicle_data["labels"] = []  # Empty labels
         
-        # Load image if required
-        if self.use_image:
-            img_path = self.dataset_path / frame_info["image_path"]
-            if img_path.exists():
-                data["image"] = self._load_image(img_path)
-        
-        # Extract timestamp
-        data["timestamp"] = frame_info.get("pointcloud_timestamp")
-        
-        return data
-    
+        return vehicle_data
+
     def _load_infrastructure_data(self, frame_id: str) -> Dict:
         """
         Load infrastructure-side data for a frame.
@@ -330,28 +373,52 @@ class V2XBaseDataset(Dataset):
         with open(inf_info_path, 'r') as f:
             inf_info = json.load(f)
         
-        frame_info = inf_info.get(frame_id, {})
+        # Find the frame info in the list
+        frame_info = None
+        for info in inf_info:
+            if info.get("frame_id") == frame_id:
+                frame_info = info
+                break
+        
         if not frame_info:
             logger.warning(f"Missing infrastructure info for {frame_id}")
             return data
         
+        
         # Load point cloud
-        pc_path = self.dataset_path / frame_info["pointcloud_path"]
+        pc_path = self.dataset_path / "infrastructure-side" / frame_info.get("pointcloud_path", "")
         if pc_path.exists():
-            points = self._load_point_cloud(pc_path)
-            data["points"] = points
+            try:
+                points = self._load_point_cloud(pc_path)
+                data["points"] = points
+            except Exception as e:
+                logger.error(f"Error loading infrastructure point cloud: {e}")
+                data["points"] = np.zeros((0, 4), dtype=np.float32)  # Empty fallback
+        else:
+            logger.warning(f"Infrastructure point cloud file not found: {pc_path}")
+            data["points"] = np.zeros((0, 4), dtype=np.float32)  # Empty fallback
         
         # Load labels
-        label_path = self.dataset_path / frame_info["label_lidar_std_path"]
+        label_path = self.dataset_path / "infrastructure-side" / frame_info.get("label_lidar_std_path", "")
         if label_path.exists():
-            with open(label_path, 'r') as f:
-                data["labels"] = json.load(f)
+            try:
+                with open(label_path, 'r') as f:
+                    data["labels"] = json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading infrastructure labels: {e}")
+                data["labels"] = []  # Empty fallback
+        else:
+            logger.warning(f"Infrastructure label file not found: {label_path}")
+            data["labels"] = []  # Empty fallback
         
         # Load image if required
         if self.use_image:
-            img_path = self.dataset_path / frame_info["image_path"]
+            img_path = self.dataset_path / "infrastructure-side" / frame_info.get("image_path", "")
             if img_path.exists():
-                data["image"] = self._load_image(img_path)
+                try:
+                    data["image"] = self._load_image(img_path)
+                except Exception as e:
+                    logger.error(f"Error loading infrastructure image: {e}")
         
         # Extract timestamp
         data["timestamp"] = frame_info.get("pointcloud_timestamp")
@@ -551,31 +618,45 @@ class V2XBaseDataset(Dataset):
         
         return matrices
     
-    def _compute_transformation_matrix(self, calib_data: Dict) -> np.ndarray:
+    def _compute_transformation_matrix(self, calib_data):
         """
-        Compute transformation matrix from calibration data.
+        Compute 4x4 transformation matrix from calibration data.
         
         Args:
-            calib_data: Dictionary containing calibration parameters
-            
+            calib_data: Calibration data dictionary
+        
         Returns:
             4x4 transformation matrix
         """
-        # Check if transform_matrix is directly provided
-        if "transform_matrix" in calib_data:
-            return np.array(calib_data["transform_matrix"])
-        
-        # Otherwise construct from rotation and translation
-        rotation = np.array(calib_data["rotation"]).reshape(3, 3)
-        translation = np.array(calib_data["translation"])
-        
-        # Create 4x4 transformation matrix
-        transform_matrix = np.eye(4)
-        transform_matrix[:3, :3] = rotation
-        transform_matrix[:3, 3] = translation
-        
-        return transform_matrix
-        
+        try:
+            # Check if data has a nested transform structure
+            if 'transform' in calib_data and isinstance(calib_data['transform'], dict):
+                transform_data = calib_data['transform']
+                if 'rotation' in transform_data and 'translation' in transform_data:
+                    rotation = np.array(transform_data['rotation']).reshape(3, 3)
+                    translation = np.array(transform_data['translation']).reshape(3, 1)
+                else:
+                    print(f"Missing rotation or translation in transform data: {transform_data.keys()}")
+                    return np.eye(4)
+            # Check if rotation and translation are at the top level
+            elif 'rotation' in calib_data and 'translation' in calib_data:
+                rotation = np.array(calib_data['rotation']).reshape(3, 3)
+                translation = np.array(calib_data['translation']).reshape(3, 1)
+            else:
+                print(f"Could not find rotation and translation in calibration data")
+                return np.eye(4)
+            
+            # Create transformation matrix
+            transform = np.eye(4)
+            transform[:3, :3] = rotation
+            transform[:3, 3] = translation.flatten()
+            
+            return transform
+        except Exception as e:
+            print(f"Error in _compute_transformation_matrix: {e}")
+            # Return identity matrix as fallback
+            return np.eye(4)
+            
     @staticmethod
     def collate_fn(batch):
         """
